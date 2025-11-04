@@ -148,59 +148,90 @@ User Input (Script)
 
 ### How Images Are Created
 
-StickMotion uses a **procedural generation** approach with HTML5 Canvas:
+StickMotion uses **Gemini AI's native image generation** to create professional stickman illustrations:
 
-#### Technology: Node Canvas
+#### Technology: Gemini 2.0 Flash with Image Generation
 ```typescript
-import { createCanvas } from "canvas";
+import { GoogleGenAI, Modality } from "@google/genai";
 ```
 
-Node Canvas provides a server-side implementation of the HTML5 Canvas API, allowing image generation without a browser.
+Gemini 2.0 Flash provides native image generation capabilities, creating high-quality stickman comic panels directly from text prompts.
 
 #### Process Flow
 
-1. **Create Canvas**: 1280x720 pixel canvas with white background
-2. **Receive Description**: AI-generated visual description from Gemini
-3. **Draw Stickman**: Procedurally draw based on keywords
-4. **Add Text**: Display description at bottom of image
-5. **Export**: Save as PNG file
+1. **Receive Scene Prompt**: Short visual concept from Gemini text API (max 10 words)
+2. **Generate Detailed Image Prompt**: Construct comprehensive prompt with style guidelines
+3. **Call Gemini Image API**: Request image generation with specific modalities
+4. **Receive Base64 Image**: Get PNG image data encoded in base64
+5. **Save to Disk**: Write image buffer to temp directory
 
-#### Stickman Drawing Algorithm
+#### Image Generation Prompt Structure
 
 ```typescript
-// Basic structure (always present)
-- Head: Circle at center-top (40px radius)
-- Body: Vertical line (110px tall)
-- Arms: Two angled lines from shoulders
-- Legs: Two lines from hips
+const imagePrompt = `Create a clean, high-quality stickman comic panel illustration.
 
-// Dynamic variations based on description keywords:
-- "waving" → Arms raised at -45° angle
-- "jumping" → Legs spread wider (80px vs 50px)
-- Default → Standard standing pose
+Style requirements:
+- White or light background
+- Minimalist, thin black outlines
+- Simple stickman figure (circle head, stick body, arms, legs)
+- Subtle colors only for key elements (e.g., brown/blue/green for eyes)
+- Include short text labels if relevant (e.g., "BROWN EYES", "DNA")
+- NO long captions or bottom text blocks
+- Style: educational infographic / simple comic panel
+- Professional and clean appearance
+
+Scene to illustrate: ${scenePrompt}`;
 ```
 
-#### Example Visual Description Processing
+#### Example Visual Processing
 
-**Input from Gemini**: "A stickman standing with one hand raised, waving hello"
+**Input Script Line**: "Brown eyes protect from the sun"
 
-**Canvas Operations**:
+**Stage 1 - Text API Response**: "Stickman with brown eyes shading from bright sun"
+
+**Stage 2 - Image Generation**:
 ```
-1. Fill background white (1280x720)
-2. Set stroke style: black, 5px width
-3. Draw head circle at (640, 260)
-4. Draw body line from (640, 300) to (640, 410)
-5. Draw left arm at -π/4 angle (waving detected)
-6. Draw right arm at -π/4 angle (waving detected)
-7. Draw left leg to (615, 510)
-8. Draw right leg to (665, 510)
-9. Add description text at bottom, wrapped to fit
-10. Export as PNG buffer
+1. Construct detailed image prompt with style guidelines
+2. Send to Gemini 2.0 Flash with IMAGE modality enabled
+3. Receive response with multiple parts:
+   - Text part: Optional description from Gemini
+   - InlineData part: Base64-encoded PNG image
+4. Extract image data and decode from base64
+5. Save as PNG: temp_video/frame_0.png
+```
+
+**Result**: Professional stickman comic panel showing a figure with brown eyes under the sun, with clean minimalist style and optional "BROWN EYES" label.
+
+#### API Configuration
+
+```typescript
+const response = await genAI.models.generateContent({
+  model: "gemini-2.0-flash-exp",
+  contents: [{ role: "user", parts: [{ text: imagePrompt }] }],
+  config: {
+    responseModalities: [Modality.TEXT, Modality.IMAGE],
+  }
+});
+```
+
+#### Response Processing
+
+```typescript
+for (const part of content.parts) {
+  if (part.text) {
+    console.log(`Gemini description: ${part.text}`);
+  } else if (part.inlineData && part.inlineData.data) {
+    const imageData = Buffer.from(part.inlineData.data, "base64");
+    await writeFile(outputPath, imageData);
+  }
+}
 ```
 
 #### File Output
 - **Location**: `temp_video/frame_0.png`, `frame_1.png`, etc.
-- **Format**: PNG (1280x720)
+- **Format**: PNG (Gemini's default resolution, typically ~1024x1024)
+- **Quality**: High-quality AI-generated illustrations
+- **Style**: Clean educational comic panels
 - **Lifecycle**: Created → Used in video → Deleted after video assembly
 
 ---
