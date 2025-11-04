@@ -1,8 +1,8 @@
 import { GoogleGenAI } from "@google/genai";
 
-// Rate limiting: Gemini free tier allows 10 requests per minute
-// We'll space requests at least 6.5 seconds apart to stay under the limit (60s / 10 = 6s, adding buffer)
-const RATE_LIMIT_DELAY_MS = 6500;
+// Rate limiting: Gemini free tier has strict quotas
+// We'll space requests at least 15 seconds apart to stay well under the limit and avoid quota errors
+const RATE_LIMIT_DELAY_MS = 15000;
 let lastRequestTime = 0;
 
 function delay(ms: number): Promise<void> {
@@ -62,8 +62,9 @@ Respond with only a concise visual description (1-2 sentences) that describes wh
     
     return text.trim();
   } catch (error: any) {
-    // If we still hit a rate limit, extract the retry delay from the error
-    if (error.message?.includes("RESOURCE_EXHAUSTED") || error.message?.includes("Quota exceeded")) {
+    // If we hit a rate limit or quota error
+    if (error.message?.includes("RESOURCE_EXHAUSTED") || error.message?.includes("Quota exceeded") || error.message?.includes("429")) {
+      // Try to extract retry delay from error message
       const retryMatch = error.message.match(/retry in ([\d.]+)s/);
       if (retryMatch) {
         const retryDelay = Math.ceil(parseFloat(retryMatch[1]) * 1000);
@@ -87,6 +88,9 @@ Respond with only a concise visual description (1-2 sentences) that describes wh
           throw new Error("Gemini API returned empty response on retry");
         }
         return retryText.trim();
+      } else {
+        // No retry time specified - likely hit daily quota limit
+        throw new Error("Gemini API quota exceeded. You may have reached your daily or per-minute request limit. Please wait a few minutes and try again, or check your quota at https://aistudio.google.com/app/apikey");
       }
     }
     throw new Error(`Gemini API error: ${error.message || "Failed to generate image description"}`);
