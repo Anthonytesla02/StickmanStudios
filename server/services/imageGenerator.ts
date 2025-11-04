@@ -1,93 +1,95 @@
 import { writeFile } from "fs/promises";
-import path from "path";
-import { createCanvas } from "canvas";
+import { GoogleGenAI, Modality } from "@google/genai";
 
-// Simple stickman image generator using canvas
+const RATE_LIMIT_DELAY_MS = 15000;
+let lastImageRequestTime = 0;
+
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 export async function generateStickmanImage(
-  description: string,
+  scenePrompt: string,
   outputPath: string
 ): Promise<void> {
-  const canvas = createCanvas(1280, 720);
-  const ctx = canvas.getContext("2d");
-
-  // White background
-  ctx.fillStyle = "white";
-  ctx.fillRect(0, 0, 1280, 720);
-
-  // Draw a simple stickman based on description
-  ctx.strokeStyle = "black";
-  ctx.lineWidth = 5;
-  ctx.lineCap = "round";
-
-  const centerX = 640;
-  const centerY = 360;
-
-  // Draw basic stickman (can be enhanced based on description)
-  // Head
-  ctx.beginPath();
-  ctx.arc(centerX, centerY - 100, 40, 0, Math.PI * 2);
-  ctx.stroke();
-
-  // Body
-  ctx.beginPath();
-  ctx.moveTo(centerX, centerY - 60);
-  ctx.lineTo(centerX, centerY + 50);
-  ctx.stroke();
-
-  // Arms - vary position based on keywords in description
-  const leftArmAngle = description.toLowerCase().includes("waving") ? -Math.PI / 4 : Math.PI / 6;
-  const rightArmAngle = description.toLowerCase().includes("waving") ? -Math.PI / 4 : Math.PI / 6;
-
-  // Left arm
-  ctx.beginPath();
-  ctx.moveTo(centerX, centerY - 40);
-  ctx.lineTo(centerX - 60 * Math.cos(leftArmAngle), centerY - 40 + 60 * Math.sin(leftArmAngle));
-  ctx.stroke();
-
-  // Right arm
-  ctx.beginPath();
-  ctx.moveTo(centerX, centerY - 40);
-  ctx.lineTo(centerX + 60 * Math.cos(rightArmAngle), centerY - 40 + 60 * Math.sin(rightArmAngle));
-  ctx.stroke();
-
-  // Legs - vary if jumping or walking
-  const legSpread = description.toLowerCase().includes("jumping") ? 80 : 50;
+  const apiKey = process.env.GOOGLE_AI_API_KEY;
   
-  // Left leg
-  ctx.beginPath();
-  ctx.moveTo(centerX, centerY + 50);
-  ctx.lineTo(centerX - legSpread / 2, centerY + 150);
-  ctx.stroke();
-
-  // Right leg
-  ctx.beginPath();
-  ctx.moveTo(centerX, centerY + 50);
-  ctx.lineTo(centerX + legSpread / 2, centerY + 150);
-  ctx.stroke();
-
-  // Add text description at the bottom
-  ctx.fillStyle = "black";
-  ctx.font = "24px Arial";
-  ctx.textAlign = "center";
-  const maxWidth = 1100;
-  const words = description.split(" ");
-  let line = "";
-  let y = 650;
-
-  for (let word of words) {
-    const testLine = line + word + " ";
-    const metrics = ctx.measureText(testLine);
-    if (metrics.width > maxWidth && line !== "") {
-      ctx.fillText(line, centerX, y);
-      line = word + " ";
-      y += 30;
-    } else {
-      line = testLine;
-    }
+  if (!apiKey) {
+    throw new Error("GOOGLE_AI_API_KEY is not set");
   }
-  ctx.fillText(line, centerX, y);
 
-  // Save to file
-  const buffer = canvas.toBuffer("image/png");
-  await writeFile(outputPath, buffer);
+  const now = Date.now();
+  const timeSinceLastRequest = now - lastImageRequestTime;
+  if (timeSinceLastRequest < RATE_LIMIT_DELAY_MS && lastImageRequestTime > 0) {
+    const waitTime = RATE_LIMIT_DELAY_MS - timeSinceLastRequest;
+    await delay(waitTime);
+  }
+  
+  lastImageRequestTime = Date.now();
+
+  const genAI = new GoogleGenAI({ 
+    vertexai: false,
+    apiKey 
+  });
+
+  const imagePrompt = `Create a clean, high-quality stickman comic panel illustration.
+
+Style requirements:
+- White or light background
+- Minimalist, thin black outlines
+- Simple stickman figure (circle head, stick body, arms, legs)
+- Subtle colors only for key elements (e.g., brown/blue/green for eyes)
+- Include short text labels if relevant (e.g., "BROWN EYES", "DNA")
+- NO long captions or bottom text blocks
+- Style: educational infographic / simple comic panel
+- Professional and clean appearance
+
+Scene to illustrate: ${scenePrompt}`;
+
+  try {
+    const response = await genAI.models.generateContent({
+      model: "gemini-2.0-flash-exp",
+      contents: [
+        {
+          role: "user",
+          parts: [{ text: imagePrompt }]
+        }
+      ],
+      config: {
+        responseModalities: [Modality.TEXT, Modality.IMAGE],
+      }
+    });
+
+    const candidates = response.candidates;
+    if (!candidates || candidates.length === 0) {
+      throw new Error("Gemini API returned no candidates");
+    }
+
+    const content = candidates[0].content;
+    if (!content || !content.parts) {
+      throw new Error("Gemini API returned no content parts");
+    }
+
+    let imageSaved = false;
+    for (const part of content.parts) {
+      if (part.text) {
+        console.log(`Gemini description: ${part.text}`);
+      } else if (part.inlineData && part.inlineData.data) {
+        const imageData = Buffer.from(part.inlineData.data, "base64");
+        await writeFile(outputPath, imageData);
+        console.log(`Image saved: ${outputPath}`);
+        imageSaved = true;
+        break;
+      }
+    }
+
+    if (!imageSaved) {
+      throw new Error("Gemini API did not return an image");
+    }
+  } catch (error: any) {
+    if (error.message?.includes("RESOURCE_EXHAUSTED") || error.message?.includes("Quota exceeded") || error.message?.includes("429")) {
+      throw new Error("Gemini API quota exceeded. You may have reached your daily or per-minute request limit. Please wait a few minutes and try again, or check your quota at https://aistudio.google.com/app/apikey");
+    }
+    throw new Error(`Gemini image generation error: ${error.message || "Failed to generate image"}`);
+  }
 }

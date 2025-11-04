@@ -37,10 +37,14 @@ export async function generateStickmanPrompt(
     apiKey 
   });
 
-  const prompt = `Convert this script line into a detailed visual description for a stickman animation scene:
-"${scriptLine}"
+  const prompt = `Generate a concise visual concept for a stickman comic panel.
+Respond with a short phrase (max 10 words) that describes what should happen visually.
+Script line: "${scriptLine}"
 
-Respond with only a concise visual description (1-2 sentences) that describes what the stickman should be doing in this scene. Focus on action, pose, and simple props if needed.`;
+Example outputs:
+- "Stickman with brown eyes shading from bright sun"
+- "Stickman labeled GREEN pointing at DNA chain"
+- "Stickman with blue eyes in dim northern landscape"`;
 
   try {
     const result = await genAI.models.generateContent({
