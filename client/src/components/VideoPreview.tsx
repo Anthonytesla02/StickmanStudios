@@ -1,6 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Download, Play, Pause } from "lucide-react";
+import { Download, Play } from "lucide-react";
 import { useState } from "react";
 import {
   Select,
@@ -12,20 +12,22 @@ import {
 
 interface VideoPreviewProps {
   videoReady?: boolean;
+  videoUrl?: string;
   onDownload?: () => void;
 }
 
-export default function VideoPreview({ videoReady = true, onDownload }: VideoPreviewProps) {
-  const [isPlaying, setIsPlaying] = useState(false);
+export default function VideoPreview({ videoReady = false, videoUrl, onDownload }: VideoPreviewProps) {
   const [voice, setVoice] = useState("alloy");
 
-  const togglePlay = () => {
-    setIsPlaying(!isPlaying);
-    console.log(isPlaying ? 'Pause video' : 'Play video');
-  };
-
   const handleDownload = () => {
-    console.log('Download video');
+    if (videoUrl) {
+      const link = document.createElement('a');
+      link.href = videoUrl;
+      link.download = `stickman-video-${Date.now()}.mp4`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
     onDownload?.();
   };
 
@@ -36,23 +38,15 @@ export default function VideoPreview({ videoReady = true, onDownload }: VideoPre
       </CardHeader>
       <CardContent className="flex-1 flex flex-col gap-4">
         <div className="aspect-video bg-muted rounded-lg flex items-center justify-center border relative overflow-hidden">
-          {videoReady ? (
-            <>
-              <div className="absolute inset-0 bg-gradient-to-br from-primary/10 to-primary/5" />
-              <Button
-                size="icon"
-                variant="secondary"
-                className="relative z-10 h-16 w-16 rounded-full"
-                onClick={togglePlay}
-                data-testid="button-play-pause"
-              >
-                {isPlaying ? (
-                  <Pause className="h-8 w-8" />
-                ) : (
-                  <Play className="h-8 w-8 ml-1" />
-                )}
-              </Button>
-            </>
+          {videoReady && videoUrl ? (
+            <video
+              src={videoUrl}
+              controls
+              className="w-full h-full object-contain"
+              data-testid="video-player"
+            >
+              Your browser does not support the video tag.
+            </video>
           ) : (
             <div className="text-center space-y-2">
               <div className="h-12 w-12 rounded-full bg-muted-foreground/10 flex items-center justify-center mx-auto">

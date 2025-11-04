@@ -5,7 +5,8 @@ import ThemeToggle from "@/components/ThemeToggle";
 import ScriptEditor from "@/components/ScriptEditor";
 import ProgressPanel from "@/components/ProgressPanel";
 import VideoPreview from "@/components/VideoPreview";
-import { useState } from "react";
+import { useState, useRef } from "react";
+import { useToast } from "@/hooks/use-toast";
 
 type Step = {
   id: string;
@@ -22,38 +23,115 @@ export default function Creator() {
     { id: "3", title: "Rendering video...", status: "pending" },
   ]);
   const [videoReady, setVideoReady] = useState(false);
+  const [videoUrl, setVideoUrl] = useState<string>("");
+  const wsRef = useRef<WebSocket | null>(null);
+  const { toast } = useToast();
 
   const handleGenerate = (script: string) => {
     console.log('Starting generation with script:', script);
     setIsGenerating(true);
     setVideoReady(false);
+    setVideoUrl("");
     setProgress(0);
     
-    const newSteps = [...steps];
-    newSteps[0].status = "processing";
-    setSteps(newSteps);
+    // Reset steps
+    setSteps([
+      { id: "1", title: "Generating images...", status: "pending" },
+      { id: "2", title: "Creating audio...", status: "pending" },
+      { id: "3", title: "Rendering video...", status: "pending" },
+    ]);
 
-    setTimeout(() => {
-      setProgress(33);
-      newSteps[0].status = "completed";
-      newSteps[1].status = "processing";
-      setSteps([...newSteps]);
-    }, 2000);
+    // Connect to WebSocket
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+    wsRef.current = ws;
 
-    setTimeout(() => {
-      setProgress(66);
-      newSteps[1].status = "completed";
-      newSteps[2].status = "processing";
-      setSteps([...newSteps]);
-    }, 4000);
+    ws.onopen = () => {
+      console.log("WebSocket connected");
+      ws.send(JSON.stringify({ type: "generate", script }));
+    };
 
-    setTimeout(() => {
-      setProgress(100);
-      newSteps[2].status = "completed";
-      setSteps([...newSteps]);
-      setVideoReady(true);
+    ws.onmessage = (event) => {
+      const message = JSON.parse(event.data);
+
+      if (message.type === "progress") {
+        const { stage, progress: progressValue, message: progressMessage } = message.data;
+        
+        setProgress(progressValue);
+
+        // Update step status based on stage
+        setSteps((prevSteps) => {
+          const newSteps = [...prevSteps];
+          
+          if (stage === "images") {
+            newSteps[0].status = progressValue < 100 ? "processing" : "completed";
+            newSteps[0].title = progressMessage;
+            if (progressValue === 100) {
+              newSteps[1].status = "processing";
+            }
+          } else if (stage === "audio") {
+            newSteps[0].status = "completed";
+            newSteps[1].status = progressValue < 100 ? "processing" : "completed";
+            newSteps[1].title = progressMessage;
+            if (progressValue === 100) {
+              newSteps[2].status = "processing";
+            }
+          } else if (stage === "video") {
+            newSteps[0].status = "completed";
+            newSteps[1].status = "completed";
+            newSteps[2].status = progressValue < 100 ? "processing" : "completed";
+            newSteps[2].title = progressMessage;
+          }
+          
+          return newSteps;
+        });
+      } else if (message.type === "complete") {
+        console.log("Video generation complete:", message.data);
+        setVideoUrl(message.data.videoUrl);
+        setVideoReady(true);
+        setIsGenerating(false);
+        setProgress(100);
+        
+        setSteps([
+          { id: "1", title: "Images generated!", status: "completed" },
+          { id: "2", title: "Audio created!", status: "completed" },
+          { id: "3", title: "Video rendered!", status: "completed" },
+        ]);
+
+        toast({
+          title: "Success!",
+          description: "Your video is ready to download.",
+        });
+
+        ws.close();
+      } else if (message.type === "error") {
+        console.error("Video generation error:", message.message);
+        setIsGenerating(false);
+        
+        toast({
+          title: "Error",
+          description: message.message || "Failed to generate video",
+          variant: "destructive",
+        });
+
+        ws.close();
+      }
+    };
+
+    ws.onerror = (error) => {
+      console.error("WebSocket error:", error);
       setIsGenerating(false);
-    }, 6000);
+      
+      toast({
+        title: "Connection Error",
+        description: "Failed to connect to the server",
+        variant: "destructive",
+      });
+    };
+
+    ws.onclose = () => {
+      console.log("WebSocket disconnected");
+    };
   };
 
   return (
@@ -97,7 +175,7 @@ export default function Creator() {
             progress={progress}
             showFrames={progress > 0}
           />
-          <VideoPreview videoReady={videoReady} />
+          <VideoPreview videoReady={videoReady} videoUrl={videoUrl} />
         </div>
       </main>
     </div>
