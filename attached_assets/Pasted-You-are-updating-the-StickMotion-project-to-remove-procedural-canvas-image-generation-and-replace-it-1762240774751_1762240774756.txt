@@ -1,0 +1,65 @@
+You are updating the StickMotion project to remove procedural canvas image generation and replace it with Gemini-based stickman image generation.
+
+**Goal:** Make StickMotion generate clean, high-quality stickman-style images (like a comic panel) directly using the Gemini API, instead of Node Canvas drawings with long text captions.
+
+**Changes required:**
+
+1. **Remove Canvas Drawing**
+   - Delete or disable all Node Canvas logic in `server/services/imageGenerator.ts`.
+   - Remove `import { createCanvas } from "canvas"` and related drawing code.
+
+2. **Add Gemini Image Generation**
+   - Import and initialize the Gemini client:
+     ```typescript
+     import { GoogleGenerativeAI } from "@google/genai";
+     const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY!);
+     ```
+   - Replace the old procedural image generation with this new async function:
+     ```typescript
+     export async function generateImage(scenePrompt: string, index: number) {
+       const model = genAI.getGenerativeModel({ model: "gemini-2.0-pro-vision" });
+
+       const imagePrompt = `
+       Create a clean, high-quality stickman comic panel illustration.
+       - White background
+       - Minimalist, thin black outlines
+       - Subtle colors for eyes (blue, green, brown)
+       - Include short text labels if relevant (e.g. "GREEN", "BROWN")
+       - Avoid long captions or bottom text
+       - Style: educational infographic / simple comic
+       Scene: ${scenePrompt}
+       `;
+
+       const result = await model.generateImage(imagePrompt);
+       const buffer = Buffer.from(result.data, "base64");
+       fs.writeFileSync(\`temp_video/frame_\${index}.png\`, buffer);
+     }
+     ```
+
+3. **Update Gemini Scene Prompt**
+   - In `server/services/gemini.ts`, replace the old prompt that asks for detailed descriptions with this shorter one:
+     ```typescript
+     const prompt = `
+     Generate a concise visual concept for a stickman animation scene.
+     Respond with a short phrase (max 10 words) that describes what should happen visually.
+     Example outputs:
+     - "Stickman with brown eyes shading from bright sun"
+     - "Stickman labeled GREEN pointing at DNA chain"
+     `;
+     ```
+   - Return only this short phrase to `imageGenerator.ts` (no long descriptive paragraphs).
+
+4. **Confirm Video Assembly**
+   - Ensure FFmpeg still processes `.png` frames in `temp_video/` as before — no other pipeline changes are needed.
+
+5. **Dependencies**
+   - Remove the `canvas` dependency from `package.json`.
+   - Ensure `@google/genai` is installed and up to date.
+
+**Expected Result:**
+- Each script line produces a single image that looks like a professional stickman infographic (white background, minimal text, clean art).
+- The video assembles with these Gemini-generated PNGs instead of Canvas-drawn frames.
+
+Once done, test the flow by generating a 3–4 line script to verify that:
+- No captions appear at the bottom.
+- Each image is visually stylized like a clean educational comic.
